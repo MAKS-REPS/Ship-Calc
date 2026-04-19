@@ -21,33 +21,14 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-def get_kakobuy_qc_images(product_id):
-    """Pobiera zdjęcia bezpośrednio z zasobów Kakobuy"""
-    images = []
-    try:
-        # Kakobuy często trzyma zdjęcia pod tym adresem dla Weidiana/Taobao
-        api_url = f"https://www.kakobuy.com/api/item/qc-photos?id={product_id}"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        
-        # Próbujemy pobrać dane z ich wewnętrznego systemu
-        r = requests.get(api_url, headers=headers, timeout=10)
-        if r.status_code == 200:
-            data = r.json()
-            # Zakładając, że Kakobuy zwraca listę w formacie JSON
-            if 'data' in data and 'list' in data['data']:
-                for item in data['data']['list']:
-                    images.append(item['url'])
-                    
-        # Jeśli API nie zadziała, szukamy na ich stronie podglądu przez regex
-        if not images:
-            web_url = f"https://www.kakobuy.com/item/details?id={product_id}"
-            r = requests.get(web_url, headers=headers, timeout=10)
-            raw_links = re.findall(r'https?://[^\s"\'<>]+(?:qc|storage)[^\s"\'<>]+(?:\.jpg|\.png)', r.text, re.IGNORECASE)
-            images = list(set(raw_links))
-            
-    except:
-        pass
-    return images
+def get_product_image(product_id, platform):
+    """Pobiera zdjęcie produktu bezpośrednio z serwerów platform (omija uufinds)"""
+    if platform == "WEIDIAN":
+        return f"https://pic.everguide.info/weidian/item/{product_id}/1.jpg"
+    elif platform == "TAOBAO":
+        # Taobao często pozwala na taki bezpośredni dostęp
+        return f"https://img.alicdn.com/imgextra/i1/{product_id}.jpg"
+    return None
 
 def extract_id(url):
     url = url.lower()
@@ -66,10 +47,10 @@ def extract_id(url):
 class QCView(View):
     def __init__(self, links_dict, uufinds_url):
         super().__init__(timeout=None)
-        # Przycisk Lookup na samej górze
+        # PRZYCISK LOOKUP - row=0 (Góra)
         self.add_item(Button(label="Lookup 🔗", url=uufinds_url, style=discord.ButtonStyle.link, row=0))
         
-        # Linki sklepów pod spodem
+        # LINKI DO AGENTÓW - row=1 (Dół)
         order = ["Kakobuy", "USFans", "ACBuy", "Mulebuy", "RAW"]
         for label in order:
             if label in links_dict:
@@ -77,7 +58,7 @@ class QCView(View):
 
 @bot.event
 async def on_ready():
-    print(f'✅ Bot QC (Kakobuy Mode) gotowy!')
+    print(f'✅ Bot gotowy. Używam bezpośrednich linków do zdjęć.')
 
 @bot.event
 async def on_message(message):
@@ -87,35 +68,37 @@ async def on_message(message):
     match = re.search(r'(https?://\S+)', message.content)
     if match:
         original_url = match.group(0).rstrip(').,!]')
-        product_id, usf_type, ac_type, mule_type, clean_url = extract_id(original_url)
+        product_id, usf_type, ac_type, mule_type, platform = extract_id(original_url)
         
         if product_id:
-            # Link do galerii (zawsze przydatny)
+            # Link do zdjęć QC na UUFinds (Lookup)
             uufinds_url = f"https://www.uufinds.com/qcfinds?url={urllib.parse.quote(original_url)}"
             
-            # POBIERANIE ZDJĘĆ Z KAKOBUY
-            images = get_kakobuy_qc_images(product_id)
+            # Próbujemy pobrać bezpośrednie zdjęcie produktu
+            img_url = get_product_image(product_id, platform)
             
-            embed = discord.Embed(title="Zdjęcia produktu", color=0x2b2d31)
-            
-            if images:
-                embed.set_image(url=images[0])
-                msg_content = f"**Znaleziono {len(images)} zdjęć QC w bazie Kakobuy.**"
-            else:
-                # Jeśli Kakobuy nie ma zdjęć, bot nie wyświetli pustej ramki
-                embed.set_image(url="https://www.uufinds.com/favicon.ico")
-                msg_content = "❌ Brak zdjęć w szybkim podglądzie. Sprawdź pełną galerię klikając **Lookup**."
+            # Jeśli nie mamy bezpośredniego, dajemy logo (zabezpieczenie)
+            final_img = img_url if img_url else "https://www.uufinds.com/favicon.ico"
 
+            embed = discord.Embed(title="Zdjęcia produktu", color=0xff0000)
+            embed.set_image(url=final_img)
+            
+            # Linki afiliacyjne
+            encoded_clean = urllib.parse.quote(original_url, safe='')
             links_dict = {
-                "Kakobuy": f"https://www.kakobuy.com/item/details?url={urllib.parse.quote(clean_url, safe='')}&affcode={AFFILIATE_CODES['kakobuy']}",
+                "Kakobuy": f"https://www.kakobuy.com/item/details?url={encoded_clean}&affcode={AFFILIATE_CODES['kakobuy']}",
                 "USFans": f"https://www.usfans.com/product/{usf_type}/{product_id}?inviteCode={AFFILIATE_CODES['usfans']}",
                 "ACBuy": f"https://m.acbuy.com/product?id={product_id}&source={ac_type}&inviteCode={AFFILIATE_CODES['acbuy']}",
                 "Mulebuy": f"https://m.mulebuy.com/pages/product/product?shoptype={mule_type}&id={product_id}&inviteCode={AFFILIATE_CODES['mulebuy']}",
-                "RAW": clean_url
+                "RAW": original_url
             }
 
             view = QCView(links_dict, uufinds_url)
-            await message.reply(content=msg_content, embed=embed, view=view)
+            
+            # Tekst nad embedem
+            msg_text = f"**QC znalezione dla linku:**\n{original_url}\n\nKliknij **Lookup**, aby zobaczyć wszystkie zdjęcia."
+            
+            await message.reply(content=msg_text, embed=embed, view=view)
 
 if TOKEN:
     bot.run(TOKEN)
