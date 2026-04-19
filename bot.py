@@ -21,53 +21,32 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-def scrape_uufinds_images(original_url):
-    """Próbuje wyciągnąć zdjęcia używając różnych metod udawania przeglądarki"""
+def get_kakobuy_qc_images(product_id):
+    """Pobiera zdjęcia bezpośrednio z zasobów Kakobuy"""
     images = []
     try:
-        # 1. Przygotowanie linku wyszukiwania
-        encoded_url = urllib.parse.quote(original_url, safe='')
-        search_url = f"https://www.uufinds.com/qcfinds?url={encoded_url}"
+        # Kakobuy często trzyma zdjęcia pod tym adresem dla Weidiana/Taobao
+        api_url = f"https://www.kakobuy.com/api/item/qc-photos?id={product_id}"
+        headers = {'User-Agent': 'Mozilla/5.0'}
         
-        # 2. Bardzo dokładne nagłówki udające prawdziwego człowieka na iPhone/Chrome
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'pl-PL,pl;q=0.9',
-            'Referer': 'https://www.uufinds.com/',
-            'Connection': 'keep-alive'
-        }
-        
-        # Pobieramy stronę
-        session = requests.Session()
-        response = session.get(search_url, headers=headers, timeout=15)
-        
-        if response.status_code == 200:
-            html = response.text
-            # Metoda "Brute Force": szukamy wszystkiego co wygląda jak link do zdjęcia QC w kodzie źródłowym
-            # Szukamy linków zaczynających się od https:// i zawierających 'storage' lub 'qc' oraz kończących się na jpg/png/webp
-            raw_links = re.findall(r'https?://[^\s"\'<>]+(?:storage|qc|product)[^\s"\'<>]+(?:\.jpg|\.png|\.webp|\.jpeg)', html, re.IGNORECASE)
+        # Próbujemy pobrać dane z ich wewnętrznego systemu
+        r = requests.get(api_url, headers=headers, timeout=10)
+        if r.status_code == 200:
+            data = r.json()
+            # Zakładając, że Kakobuy zwraca listę w formacie JSON
+            if 'data' in data and 'list' in data['data']:
+                for item in data['data']['list']:
+                    images.append(item['url'])
+                    
+        # Jeśli API nie zadziała, szukamy na ich stronie podglądu przez regex
+        if not images:
+            web_url = f"https://www.kakobuy.com/item/details?id={product_id}"
+            r = requests.get(web_url, headers=headers, timeout=10)
+            raw_links = re.findall(r'https?://[^\s"\'<>]+(?:qc|storage)[^\s"\'<>]+(?:\.jpg|\.png)', r.text, re.IGNORECASE)
+            images = list(set(raw_links))
             
-            for link in raw_links:
-                # Czyszczenie linku z ewentualnych śmieci po regexie
-                clean_link = link.split('\\')[0].split('"')[0].split("'")[0]
-                if clean_link not in images and "favicon" not in clean_link:
-                    images.append(clean_link)
-
-            # Jeśli regex nic nie znalazł, próbujemy standardowo przez tagi img (na wszelki wypadek)
-            if not images:
-                from bs4 import BeautifulSoup
-                soup = BeautifulSoup(html, 'html.parser')
-                for img in soup.find_all('img'):
-                    src = img.get('src') or img.get('data-src') or img.get('lazy-src')
-                    if src:
-                        if src.startswith('//'): src = 'https:' + src
-                        if any(x in src.lower() for x in ['qc', 'storage', 'product']):
-                            if src not in images: images.append(src)
-                            
-    except Exception as e:
-        print(f"Błąd scrapowania: {e}")
-        
+    except:
+        pass
     return images
 
 def extract_id(url):
@@ -87,7 +66,10 @@ def extract_id(url):
 class QCView(View):
     def __init__(self, links_dict, uufinds_url):
         super().__init__(timeout=None)
+        # Przycisk Lookup na samej górze
         self.add_item(Button(label="Lookup 🔗", url=uufinds_url, style=discord.ButtonStyle.link, row=0))
+        
+        # Linki sklepów pod spodem
         order = ["Kakobuy", "USFans", "ACBuy", "Mulebuy", "RAW"]
         for label in order:
             if label in links_dict:
@@ -95,7 +77,7 @@ class QCView(View):
 
 @bot.event
 async def on_ready():
-    print(f'✅ Bot QC READY | Tryb Brute-Force Scraper')
+    print(f'✅ Bot QC (Kakobuy Mode) gotowy!')
 
 @bot.event
 async def on_message(message):
@@ -108,19 +90,21 @@ async def on_message(message):
         product_id, usf_type, ac_type, mule_type, clean_url = extract_id(original_url)
         
         if product_id:
+            # Link do galerii (zawsze przydatny)
             uufinds_url = f"https://www.uufinds.com/qcfinds?url={urllib.parse.quote(original_url)}"
-            images = scrape_uufinds_images(original_url)
             
-            # Tworzenie Embedu
+            # POBIERANIE ZDJĘĆ Z KAKOBUY
+            images = get_kakobuy_qc_images(product_id)
+            
             embed = discord.Embed(title="Zdjęcia produktu", color=0x2b2d31)
             
             if images:
                 embed.set_image(url=images[0])
-                msg_content = f"**Znaleziono {len(images)} zdjęć QC.**"
+                msg_content = f"**Znaleziono {len(images)} zdjęć QC w bazie Kakobuy.**"
             else:
-                # Jeśli bot nadal nic nie widzi, dajemy logo UUFinds, żeby embed nie był pusty
+                # Jeśli Kakobuy nie ma zdjęć, bot nie wyświetli pustej ramki
                 embed.set_image(url="https://www.uufinds.com/favicon.ico")
-                msg_content = "❌ Bot nie mógł pobrać zdjęć automatycznie (zabezpieczenie strony). Kliknij **Lookup**, aby je zobaczyć."
+                msg_content = "❌ Brak zdjęć w szybkim podglądzie. Sprawdź pełną galerię klikając **Lookup**."
 
             links_dict = {
                 "Kakobuy": f"https://www.kakobuy.com/item/details?url={urllib.parse.quote(clean_url, safe='')}&affcode={AFFILIATE_CODES['kakobuy']}",
