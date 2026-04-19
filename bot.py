@@ -22,25 +22,28 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-def get_qc_images_from_uufinds(product_id):
-    """Pobiera listę wszystkich zdjęć QC ze strony UUFinds"""
+def scrape_uufinds_images(original_url):
+    """Wchodzi na uufinds z Twoim linkiem i wyciąga wszystkie zdjęcia QC"""
     images = []
     try:
-        url = f"https://www.uufinds.com/qcfinds?id={product_id}"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        r = requests.get(url, headers=headers, timeout=10)
-        if r.status_code == 200:
-            soup = BeautifulSoup(r.text, 'html.parser')
+        search_url = f"https://www.uufinds.com/qcfinds?url={urllib.parse.quote(original_url)}"
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36'}
+        
+        response = requests.get(search_url, headers=headers, timeout=10)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
             img_tags = soup.find_all('img', {'src': re.compile(r'storage|qc')})
             for img in img_tags:
                 src = img['src']
                 if src.startswith('//'): src = 'https:' + src
                 if src not in images:
                     images.append(src)
-    except: pass
+    except Exception as e:
+        print(f"Błąd scrapowania: {e}")
     return images
 
 def extract_id(url):
+    """Wyciąga ID, żeby zrobić reflink"""
     url = url.lower()
     if "taobao.com" in url or "tmall.com" in url:
         m = re.search(r'id=(\d+)', url)
@@ -55,53 +58,21 @@ def extract_id(url):
     return None, None, None, None, None
 
 class QCView(View):
-    """Widok z przyciskami Następne/Poprzednie i linkami afiliacyjnymi"""
-    def __init__(self, images, links_dict, uufinds_url, current_index=0):
+    def __init__(self, links_dict, uufinds_url):
         super().__init__(timeout=None)
-        self.images = images
-        self.links_dict = links_dict
-        self.uufinds_url = uufinds_url
-        self.index = current_index
+        
+        # --- RZĄD 1 (row=0): Tylko przycisk Lookup ---
+        self.add_item(Button(label="Lookup 🔗", url=uufinds_url, style=discord.ButtonStyle.link, row=0))
 
-        # Górny rząd: Nawigacja
-        prev_btn = Button(label="Poprzednie", style=discord.ButtonStyle.primary, disabled=(self.index == 0))
-        prev_btn.callback = self.prev_callback
-        self.add_item(prev_btn)
-
-        lookup_btn = Button(label="Lookup 🔗", url=self.uufinds_url, style=discord.ButtonStyle.link)
-        self.add_item(lookup_btn)
-
-        next_btn = Button(label="Następne", style=discord.ButtonStyle.primary, disabled=(self.index == len(self.images) - 1))
-        next_btn.callback = self.next_callback
-        self.add_item(next_btn)
-
-        # Dolny rząd: Linki (zgodnie z prośbą)
-        # Kakobuy, USFans, ACBuy, Mulebuy, RAW
+        # --- RZĄD 2 (row=1): Twoje Reflinki ---
         order = ["Kakobuy", "USFans", "ACBuy", "Mulebuy", "RAW"]
         for label in order:
-            if label in self.links_dict:
-                self.add_item(Button(label=label, url=self.links_dict[label], style=discord.ButtonStyle.link))
-
-    async def update_view(self, interaction):
-        embed = interaction.message.embeds[0]
-        embed.set_image(url=self.images[self.index])
-        embed.set_footer(text=f"{self.index + 1}/{len(self.images)}")
-        
-        # Tworzymy nowy widok, żeby odświeżyć stan przycisków (disabled)
-        new_view = QCView(self.images, self.links_dict, self.uufinds_url, self.index)
-        await interaction.response.edit_message(embed=embed, view=new_view)
-
-    async def prev_callback(self, interaction):
-        self.index -= 1
-        await self.update_view(interaction)
-
-    async def next_callback(self, interaction):
-        self.index += 1
-        await self.update_view(interaction)
+            if label in links_dict:
+                self.add_item(Button(label=label, url=links_dict[label], style=discord.ButtonStyle.link, row=1))
 
 @bot.event
 async def on_ready():
-    print(f'✅ Bot QC Ready! Tryb: Galeria + Pagination')
+    print(f'✅ Bot gotowy! Tryb prosty: Lookup + Linki aktywne na kanale {ALLOWED_CHANNEL_ID}')
 
 @bot.event
 async def on_message(message):
@@ -114,16 +85,19 @@ async def on_message(message):
         product_id, usf_type, ac_type, mule_type, clean_url = extract_id(original_url)
         
         if product_id:
-            # 1. Przygotuj link do galerii UUFinds
+            # Automatyczny link do wyszukiwarki UUFinds (Lookup)
             uufinds_url = f"https://www.uufinds.com/qcfinds?url={urllib.parse.quote(original_url)}"
             
-            # 2. Pobierz wszystkie zdjęcia
-            images = get_qc_images_from_uufinds(product_id)
+            # Pobieramy zdjęcia (tylko po to, żeby wyświetlić pierwsze w Embedzie i policzyć ile ich jest)
+            images = scrape_uufinds_images(original_url)
+            
             if not images:
-                await message.reply("❌ Nie znaleziono zdjęć QC dla tego linku.")
-                return
+                images = ["https://www.uufinds.com/favicon.ico"]
+                msg_content = "❌ Nie znalazłem ukrytych zdjęć, ale możesz sprawdzić to ręcznie pod przyciskiem **Lookup**."
+            else:
+                msg_content = f"**Znaleziono {len(images)} zdjęć QC.**"
 
-            # 3. Przygotuj linki afiliacyjne
+            # Przygotowanie linków
             encoded_clean = urllib.parse.quote(clean_url, safe='')
             links_dict = {
                 "Kakobuy": f"https://www.kakobuy.com/item/details?url={encoded_clean}&affcode={AFFILIATE_CODES['kakobuy']}",
@@ -133,13 +107,17 @@ async def on_message(message):
                 "RAW": clean_url
             }
 
-            # 4. Wyślij embeda z pierwszym zdjęciem i nawigacją
-            embed = discord.Embed(title="Zdjęcia produktu", color=0x2f3136)
-            embed.set_image(url=images[0])
-            embed.set_footer(text=f"1/{len(images)}")
+            # Tworzenie Embedu
+            embed = discord.Embed(
+                title="Zdjęcia produktu",
+                color=0x2b2d31
+            )
+            embed.set_image(url=images[0]) # Wyświetla tylko pierwsze zdjęcie jako podgląd
             
-            view = QCView(images, links_dict, uufinds_url)
-            await message.reply(embed=embed, view=view)
+            # Odpalenie interfejsu z przyciskami (View)
+            view = QCView(links_dict, uufinds_url)
+            
+            await message.reply(content=msg_content, embed=embed, view=view)
 
 if TOKEN:
     bot.run(TOKEN)
