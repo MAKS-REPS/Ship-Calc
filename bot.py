@@ -22,8 +22,8 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-def get_uufinds_preview_image(product_id):
-    """Próbuje pobrać zdjęcie podglądowe do embeda"""
+def get_uufinds_preview(product_id):
+    """Pobiera zdjęcie podglądowe z UUFinds dla estetyki embeda"""
     try:
         search_url = f"https://www.uufinds.com/qcfinds?id={product_id}"
         headers = {'User-Agent': 'Mozilla/5.0'}
@@ -31,13 +31,12 @@ def get_uufinds_preview_image(product_id):
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
             img_tag = soup.find('img', {'src': re.compile(r'qc|storage')})
-            if img_tag:
-                return img_tag['src']
-    except:
-        pass
+            if img_tag: return img_tag['src']
+    except: pass
     return None
 
 def extract_id(url):
+    """Wyciąga ID i typy dla agentów"""
     url = url.lower()
     if "taobao.com" in url or "tmall.com" in url:
         m = re.search(r'id=(\d+)', url)
@@ -62,27 +61,24 @@ class LinkButtons(View):
 
 @bot.event
 async def on_ready():
-    print(f'✅ Bot gotowy | Kanał: {ALLOWED_CHANNEL_ID}')
+    print(f'✅ Bot aktywny. Kanał: {ALLOWED_CHANNEL_ID}')
 
 @bot.event
 async def on_message(message):
     if message.author.bot or message.channel.id != ALLOWED_CHANNEL_ID:
         return
 
-    # Szukanie linku w wiadomości
+    # Wykrywanie linku w wiadomości
     match = re.search(r'(https?://\S+)', message.content)
     if match:
         original_url = match.group(0).rstrip(').,!]')
         product_id, usf_type, ac_type, mule_type, clean_url = extract_id(original_url)
         
         if product_id:
-            # Zakoduj oryginalny link, żeby bezpiecznie wstawić go w URL uufinds
-            encoded_original_link = urllib.parse.quote(original_url, safe='')
+            # Tworzenie linku, który automatycznie wkleja URL w wyszukiwarkę UUFinds
+            uufinds_url = f"https://www.uufinds.com/qcfinds?url={urllib.parse.quote(original_url)}"
             
-            # AUTOMATYCZNY LINK DO QC NA UUFINDS (Wkleja Twój link w ich wyszukiwarkę)
-            uufinds_qc_link = f"https://www.uufinds.com/qcfinds?url={encoded_original_link}"
-            
-            # Linki do przycisków
+            # Przygotowanie linków afiliacyjnych
             encoded_clean = urllib.parse.quote(clean_url, safe='')
             links_dict = {
                 "Kakobuy": f"https://www.kakobuy.com/item/details?url={encoded_clean}&affcode={AFFILIATE_CODES['kakobuy']}",
@@ -92,23 +88,24 @@ async def on_message(message):
                 "Raw": clean_url
             }
 
-            # Pobieranie miniatury zdjęcia
-            preview_img = get_uufinds_preview_image(product_id)
+            # Pobranie miniatury (opcjonalne, dla wyglądu)
+            preview_img = get_uufinds_preview(product_id)
 
+            # Budowa Embedu z nowym tekstem
             embed = discord.Embed(
                 title="QC FINDER",
                 description=(
-                    f"Zdjęcia dla twojego itemu o id: **{product_id}**\n"
-                    f"Są w linku poniżej:\n\n"
-                    f"🔗 [KLIKNIJ TUTAJ ABY ZOBACZYĆ QC]({uufinds_qc_link})"
+                    f"Zdjęcia dla twojego itemu o linku:\n**{original_url}**\n\n"
+                    f"Sa w linku poniżej\n\n"
+                    f"🔗 [KLIKNIJ TUTAJ ABY ZOBACZYĆ QC]({uufinds_url})"
                 ),
-                color=0xff0000
+                color=0xff0000 # Czerwony pasek
             )
             
             if preview_img:
                 embed.set_image(url=preview_img)
             
-            embed.set_footer(text=f"Wysłane przez {message.author.display_name}")
+            embed.set_footer(text=f"Przetworzono automatycznie dla {message.author.display_name}")
 
             await message.reply(embed=embed, view=LinkButtons(links_dict))
 
