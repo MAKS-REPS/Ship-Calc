@@ -22,27 +22,23 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-def get_direct_qc_links(original_url):
-    """Wchodzi na UUFinds i wyciąga linki do konkretnych zdjęć w galerii"""
-    photo_urls = []
+def get_qc_images_from_uufinds(product_id):
+    """Pobiera listę wszystkich zdjęć QC ze strony UUFinds"""
+    images = []
     try:
-        # Kodowanie linku, aby UUFinds go przyjął
-        search_url = f"https://www.uufinds.com/qcfinds?url={urllib.parse.quote(original_url)}"
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36'}
-        
-        response = requests.get(search_url, headers=headers, timeout=10)
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, 'html.parser')
-            # Szukamy wszystkich obrazków w sekcji galerii (zwykle mają 'storage' lub 'qc' w nazwie)
-            imgs = soup.find_all('img', {'src': re.compile(r'storage|qc')})
-            for img in imgs:
+        url = f"https://www.uufinds.com/qcfinds?id={product_id}"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        r = requests.get(url, headers=headers, timeout=10)
+        if r.status_code == 200:
+            soup = BeautifulSoup(r.text, 'html.parser')
+            img_tags = soup.find_all('img', {'src': re.compile(r'storage|qc')})
+            for img in img_tags:
                 src = img['src']
                 if src.startswith('//'): src = 'https:' + src
-                if src not in photo_urls:
-                    photo_urls.append(src)
-    except Exception as e:
-        print(f"Błąd pobierania zdjęć: {e}")
-    return photo_urls
+                if src not in images:
+                    images.append(src)
+    except: pass
+    return images
 
 def extract_id(url):
     url = url.lower()
@@ -58,18 +54,54 @@ def extract_id(url):
         if m: return m.group(1), "2", "1688", "ALI_1688", f"https://detail.1688.com/offer/{m.group(1)}.html"
     return None, None, None, None, None
 
-class LinkButtons(View):
-    def __init__(self, links):
-        super().__init__()
-        # USFans, Kakobuy, LitBuy (możesz podmienić pod ACBuy), MuleBuy, Weidian Raw
-        order = [("USFans", "usfans"), ("Kakobuy", "kakobuy"), ("ACBuy", "acbuy"), ("Mulebuy", "mulebuy"), ("Raw", "raw")]
-        for label, key in order:
-            if label in links:
-                self.add_item(Button(label=label, url=links[label], style=discord.ButtonStyle.link))
+class QCView(View):
+    """Widok z przyciskami Następne/Poprzednie i linkami afiliacyjnymi"""
+    def __init__(self, images, links_dict, uufinds_url, current_index=0):
+        super().__init__(timeout=None)
+        self.images = images
+        self.links_dict = links_dict
+        self.uufinds_url = uufinds_url
+        self.index = current_index
+
+        # Górny rząd: Nawigacja
+        prev_btn = Button(label="Poprzednie", style=discord.ButtonStyle.primary, disabled=(self.index == 0))
+        prev_btn.callback = self.prev_callback
+        self.add_item(prev_btn)
+
+        lookup_btn = Button(label="Lookup 🔗", url=self.uufinds_url, style=discord.ButtonStyle.link)
+        self.add_item(lookup_btn)
+
+        next_btn = Button(label="Następne", style=discord.ButtonStyle.primary, disabled=(self.index == len(self.images) - 1))
+        next_btn.callback = self.next_callback
+        self.add_item(next_btn)
+
+        # Dolny rząd: Linki (zgodnie z prośbą)
+        # Kakobuy, USFans, ACBuy, Mulebuy, RAW
+        order = ["Kakobuy", "USFans", "ACBuy", "Mulebuy", "RAW"]
+        for label in order:
+            if label in self.links_dict:
+                self.add_item(Button(label=label, url=self.links_dict[label], style=discord.ButtonStyle.link))
+
+    async def update_view(self, interaction):
+        embed = interaction.message.embeds[0]
+        embed.set_image(url=self.images[self.index])
+        embed.set_footer(text=f"{self.index + 1}/{len(self.images)}")
+        
+        # Tworzymy nowy widok, żeby odświeżyć stan przycisków (disabled)
+        new_view = QCView(self.images, self.links_dict, self.uufinds_url, self.index)
+        await interaction.response.edit_message(embed=embed, view=new_view)
+
+    async def prev_callback(self, interaction):
+        self.index -= 1
+        await self.update_view(interaction)
+
+    async def next_callback(self, interaction):
+        self.index += 1
+        await self.update_view(interaction)
 
 @bot.event
 async def on_ready():
-    print(f'✅ Bot gotowy! Scraper zdjęć aktywny.')
+    print(f'✅ Bot QC Ready! Tryb: Galeria + Pagination')
 
 @bot.event
 async def on_message(message):
@@ -82,46 +114,32 @@ async def on_message(message):
         product_id, usf_type, ac_type, mule_type, clean_url = extract_id(original_url)
         
         if product_id:
+            # 1. Przygotuj link do galerii UUFinds
             uufinds_url = f"https://www.uufinds.com/qcfinds?url={urllib.parse.quote(original_url)}"
             
-            # Pobieranie listy zdjęć bezpośrednio ze strony
-            photos = get_direct_qc_links(original_url)
-            
-            # Tworzenie tekstu "Zdjęcie 1, Zdjęcie 2..."
-            photo_links_text = ""
-            if photos:
-                for i, p_url in enumerate(photos[:8], 1): # max 8 linków
-                    photo_links_text += f"[Zdjęcie {i}]({p_url})\n"
-            else:
-                photo_links_text = "*Nie znaleziono bezpośrednich zdjęć w galerii.*"
+            # 2. Pobierz wszystkie zdjęcia
+            images = get_qc_images_from_uufinds(product_id)
+            if not images:
+                await message.reply("❌ Nie znaleziono zdjęć QC dla tego linku.")
+                return
 
-            # Przyciski
+            # 3. Przygotuj linki afiliacyjne
             encoded_clean = urllib.parse.quote(clean_url, safe='')
             links_dict = {
-                "USFans": f"https://www.usfans.com/product/{usf_type}/{product_id}?inviteCode={AFFILIATE_CODES['usfans']}",
                 "Kakobuy": f"https://www.kakobuy.com/item/details?url={encoded_clean}&affcode={AFFILIATE_CODES['kakobuy']}",
-                "Mulebuy": f"https://m.mulebuy.com/pages/product/product?shoptype={mule_type}&id={product_id}&inviteCode={AFFILIATE_CODES['mulebuy']}",
+                "USFans": f"https://www.usfans.com/product/{usf_type}/{product_id}?inviteCode={AFFILIATE_CODES['usfans']}",
                 "ACBuy": f"https://m.acbuy.com/product?id={product_id}&source={ac_type}&inviteCode={AFFILIATE_CODES['acbuy']}",
-                "Raw": clean_url
+                "Mulebuy": f"https://m.mulebuy.com/pages/product/product?shoptype={mule_type}&id={product_id}&inviteCode={AFFILIATE_CODES['mulebuy']}",
+                "RAW": clean_url
             }
 
-            embed = discord.Embed(
-                title="QC FINDER",
-                description=(
-                    f"Zdjęcia dla twojego itemu o linku:\n**{original_url}**\n\n"
-                    f"{photo_links_text}\n"
-                    f"Sa w linku poniżej\n\n"
-                    f"🔗 [KLIKNIJ TUTAJ ABY ZOBACZYĆ QC]({uufinds_url})"
-                ),
-                color=0xff0000
-            )
+            # 4. Wyślij embeda z pierwszym zdjęciem i nawigacją
+            embed = discord.Embed(title="Zdjęcia produktu", color=0x2f3136)
+            embed.set_image(url=images[0])
+            embed.set_footer(text=f"1/{len(images)}")
             
-            if photos:
-                embed.set_image(url=photos[0]) # Pokazuje pierwsze zdjęcie jako główne
-            
-            embed.set_footer(text=f"Created By {message.author.display_name}")
-
-            await message.reply(embed=embed, view=LinkButtons(links_dict))
+            view = QCView(images, links_dict, uufinds_url)
+            await message.reply(embed=embed, view=view)
 
 if TOKEN:
     bot.run(TOKEN)
