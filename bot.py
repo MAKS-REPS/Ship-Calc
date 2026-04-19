@@ -5,7 +5,6 @@ import re
 import urllib.parse
 import os
 import requests
-from bs4 import BeautifulSoup
 
 # --- KONFIGURACJA ---
 TOKEN = os.getenv('DISCORD_TOKEN')
@@ -23,27 +22,55 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 def scrape_uufinds_images(original_url):
-    """Wchodzi na uufinds z Twoim linkiem i wyciąga wszystkie zdjęcia QC"""
+    """Próbuje wyciągnąć zdjęcia używając różnych metod udawania przeglądarki"""
     images = []
     try:
-        search_url = f"https://www.uufinds.com/qcfinds?url={urllib.parse.quote(original_url)}"
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36'}
+        # 1. Przygotowanie linku wyszukiwania
+        encoded_url = urllib.parse.quote(original_url, safe='')
+        search_url = f"https://www.uufinds.com/qcfinds?url={encoded_url}"
         
-        response = requests.get(search_url, headers=headers, timeout=10)
+        # 2. Bardzo dokładne nagłówki udające prawdziwego człowieka na iPhone/Chrome
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'pl-PL,pl;q=0.9',
+            'Referer': 'https://www.uufinds.com/',
+            'Connection': 'keep-alive'
+        }
+        
+        # Pobieramy stronę
+        session = requests.Session()
+        response = session.get(search_url, headers=headers, timeout=15)
+        
         if response.status_code == 200:
-            soup = BeautifulSoup(response.text, 'html.parser')
-            img_tags = soup.find_all('img', {'src': re.compile(r'storage|qc')})
-            for img in img_tags:
-                src = img['src']
-                if src.startswith('//'): src = 'https:' + src
-                if src not in images:
-                    images.append(src)
+            html = response.text
+            # Metoda "Brute Force": szukamy wszystkiego co wygląda jak link do zdjęcia QC w kodzie źródłowym
+            # Szukamy linków zaczynających się od https:// i zawierających 'storage' lub 'qc' oraz kończących się na jpg/png/webp
+            raw_links = re.findall(r'https?://[^\s"\'<>]+(?:storage|qc|product)[^\s"\'<>]+(?:\.jpg|\.png|\.webp|\.jpeg)', html, re.IGNORECASE)
+            
+            for link in raw_links:
+                # Czyszczenie linku z ewentualnych śmieci po regexie
+                clean_link = link.split('\\')[0].split('"')[0].split("'")[0]
+                if clean_link not in images and "favicon" not in clean_link:
+                    images.append(clean_link)
+
+            # Jeśli regex nic nie znalazł, próbujemy standardowo przez tagi img (na wszelki wypadek)
+            if not images:
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(html, 'html.parser')
+                for img in soup.find_all('img'):
+                    src = img.get('src') or img.get('data-src') or img.get('lazy-src')
+                    if src:
+                        if src.startswith('//'): src = 'https:' + src
+                        if any(x in src.lower() for x in ['qc', 'storage', 'product']):
+                            if src not in images: images.append(src)
+                            
     except Exception as e:
         print(f"Błąd scrapowania: {e}")
+        
     return images
 
 def extract_id(url):
-    """Wyciąga ID, żeby zrobić reflink"""
     url = url.lower()
     if "taobao.com" in url or "tmall.com" in url:
         m = re.search(r'id=(\d+)', url)
@@ -60,11 +87,7 @@ def extract_id(url):
 class QCView(View):
     def __init__(self, links_dict, uufinds_url):
         super().__init__(timeout=None)
-        
-        # --- RZĄD 1 (row=0): Tylko przycisk Lookup ---
         self.add_item(Button(label="Lookup 🔗", url=uufinds_url, style=discord.ButtonStyle.link, row=0))
-
-        # --- RZĄD 2 (row=1): Twoje Reflinki ---
         order = ["Kakobuy", "USFans", "ACBuy", "Mulebuy", "RAW"]
         for label in order:
             if label in links_dict:
@@ -72,7 +95,7 @@ class QCView(View):
 
 @bot.event
 async def on_ready():
-    print(f'✅ Bot gotowy! Tryb prosty: Lookup + Linki aktywne na kanale {ALLOWED_CHANNEL_ID}')
+    print(f'✅ Bot QC READY | Tryb Brute-Force Scraper')
 
 @bot.event
 async def on_message(message):
@@ -85,38 +108,29 @@ async def on_message(message):
         product_id, usf_type, ac_type, mule_type, clean_url = extract_id(original_url)
         
         if product_id:
-            # Automatyczny link do wyszukiwarki UUFinds (Lookup)
             uufinds_url = f"https://www.uufinds.com/qcfinds?url={urllib.parse.quote(original_url)}"
-            
-            # Pobieramy zdjęcia (tylko po to, żeby wyświetlić pierwsze w Embedzie i policzyć ile ich jest)
             images = scrape_uufinds_images(original_url)
             
-            if not images:
-                images = ["https://www.uufinds.com/favicon.ico"]
-                msg_content = "❌ Nie znalazłem ukrytych zdjęć, ale możesz sprawdzić to ręcznie pod przyciskiem **Lookup**."
-            else:
+            # Tworzenie Embedu
+            embed = discord.Embed(title="Zdjęcia produktu", color=0x2b2d31)
+            
+            if images:
+                embed.set_image(url=images[0])
                 msg_content = f"**Znaleziono {len(images)} zdjęć QC.**"
+            else:
+                # Jeśli bot nadal nic nie widzi, dajemy logo UUFinds, żeby embed nie był pusty
+                embed.set_image(url="https://www.uufinds.com/favicon.ico")
+                msg_content = "❌ Bot nie mógł pobrać zdjęć automatycznie (zabezpieczenie strony). Kliknij **Lookup**, aby je zobaczyć."
 
-            # Przygotowanie linków
-            encoded_clean = urllib.parse.quote(clean_url, safe='')
             links_dict = {
-                "Kakobuy": f"https://www.kakobuy.com/item/details?url={encoded_clean}&affcode={AFFILIATE_CODES['kakobuy']}",
+                "Kakobuy": f"https://www.kakobuy.com/item/details?url={urllib.parse.quote(clean_url, safe='')}&affcode={AFFILIATE_CODES['kakobuy']}",
                 "USFans": f"https://www.usfans.com/product/{usf_type}/{product_id}?inviteCode={AFFILIATE_CODES['usfans']}",
                 "ACBuy": f"https://m.acbuy.com/product?id={product_id}&source={ac_type}&inviteCode={AFFILIATE_CODES['acbuy']}",
                 "Mulebuy": f"https://m.mulebuy.com/pages/product/product?shoptype={mule_type}&id={product_id}&inviteCode={AFFILIATE_CODES['mulebuy']}",
                 "RAW": clean_url
             }
 
-            # Tworzenie Embedu
-            embed = discord.Embed(
-                title="Zdjęcia produktu",
-                color=0x2b2d31
-            )
-            embed.set_image(url=images[0]) # Wyświetla tylko pierwsze zdjęcie jako podgląd
-            
-            # Odpalenie interfejsu z przyciskami (View)
             view = QCView(links_dict, uufinds_url)
-            
             await message.reply(content=msg_content, embed=embed, view=view)
 
 if TOKEN:
