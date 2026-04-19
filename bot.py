@@ -22,16 +22,16 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-def get_uufinds_preview(product_id):
-    """Pobiera zdjęcie podglądowe z UUFinds dla estetyki embeda"""
+def get_preview_image(product_id):
+    """Pobiera tylko miniaturkę do embeda, żeby bot ładnie wyglądał"""
     try:
         search_url = f"https://www.uufinds.com/qcfinds?id={product_id}"
         headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(search_url, headers=headers, timeout=5)
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, 'html.parser')
-            img_tag = soup.find('img', {'src': re.compile(r'qc|storage')})
-            if img_tag: return img_tag['src']
+        r = requests.get(search_url, headers=headers, timeout=5)
+        if r.status_code == 200:
+            soup = BeautifulSoup(r.text, 'html.parser')
+            img = soup.find('img', {'src': re.compile(r'qc|storage')})
+            if img: return img['src']
     except: pass
     return None
 
@@ -51,34 +51,34 @@ def extract_id(url):
     return None, None, None, None, None
 
 class LinkButtons(View):
-    def __init__(self, links_data):
+    def __init__(self, links):
         super().__init__()
         # Kolejność: Kakobuy, USFans, Mulebuy, ACBuy, Raw
         order = ["Kakobuy", "USFans", "Mulebuy", "ACBuy", "Raw"]
         for label in order:
-            if label in links_data:
-                self.add_item(Button(label=label, url=links_data[label], style=discord.ButtonStyle.link))
+            if label in links:
+                self.add_item(Button(label=label, url=links[label], style=discord.ButtonStyle.link))
 
 @bot.event
 async def on_ready():
-    print(f'✅ Bot aktywny. Kanał: {ALLOWED_CHANNEL_ID}')
+    print(f'✅ Bot QC gotowy! Czerwony pasek aktywny.')
 
 @bot.event
 async def on_message(message):
     if message.author.bot or message.channel.id != ALLOWED_CHANNEL_ID:
         return
 
-    # Wykrywanie linku w wiadomości
+    # Szukamy linku w wiadomości
     match = re.search(r'(https?://\S+)', message.content)
     if match:
         original_url = match.group(0).rstrip(').,!]')
         product_id, usf_type, ac_type, mule_type, clean_url = extract_id(original_url)
         
         if product_id:
-            # Tworzenie linku, który automatycznie wkleja URL w wyszukiwarkę UUFinds
-            uufinds_url = f"https://www.uufinds.com/qcfinds?url={urllib.parse.quote(original_url)}"
+            # KLUCZ: Tworzymy link, który wkleja CAŁY Twój link do wyszukiwarki UUFinds
+            uufinds_search_link = f"https://www.uufinds.com/qcfinds?url={urllib.parse.quote(original_url)}"
             
-            # Przygotowanie linków afiliacyjnych
+            # Linki do przycisków
             encoded_clean = urllib.parse.quote(clean_url, safe='')
             links_dict = {
                 "Kakobuy": f"https://www.kakobuy.com/item/details?url={encoded_clean}&affcode={AFFILIATE_CODES['kakobuy']}",
@@ -88,24 +88,24 @@ async def on_message(message):
                 "Raw": clean_url
             }
 
-            # Pobranie miniatury (opcjonalne, dla wyglądu)
-            preview_img = get_uufinds_preview(product_id)
+            # Pobieramy zdjęcie do podglądu
+            preview_img = get_preview_image(product_id)
 
-            # Budowa Embedu z nowym tekstem
+            # Tworzenie Embedu
             embed = discord.Embed(
                 title="QC FINDER",
                 description=(
                     f"Zdjęcia dla twojego itemu o linku:\n**{original_url}**\n\n"
                     f"Sa w linku poniżej\n\n"
-                    f"🔗 [KLIKNIJ TUTAJ ABY ZOBACZYĆ QC]({uufinds_url})"
+                    f"🔗 [KLIKNIJ TUTAJ ABY ZOBACZYĆ QC]({uufinds_search_link})"
                 ),
-                color=0xff0000 # Czerwony pasek
+                color=0xff0000 # CZERWONY PASEK
             )
             
             if preview_img:
                 embed.set_image(url=preview_img)
             
-            embed.set_footer(text=f"Przetworzono automatycznie dla {message.author.display_name}")
+            embed.set_footer(text=f"Request by {message.author.display_name}")
 
             await message.reply(embed=embed, view=LinkButtons(links_dict))
 
