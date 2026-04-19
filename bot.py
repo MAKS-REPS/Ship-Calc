@@ -9,7 +9,7 @@ from bs4 import BeautifulSoup
 
 # --- KONFIGURACJA ---
 TOKEN = os.getenv('DISCORD_TOKEN')
-ALLOWED_CHANNEL_ID = 1495473429086863481 
+ALLOWED_CHANNEL_ID = 1457766095531278529  # Twój nowy kanał
 
 AFFILIATE_CODES = {
     "usfans": "DJPZ6T",
@@ -22,21 +22,22 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 def get_uufinds_qc(product_id):
-    """Próbuje pobrać zdjęcie QC z UUFinds na podstawie ID."""
+    """Pobiera zdjęcie QC z UUFinds."""
     try:
-        # UUFinds często indeksuje po ID produktu
         search_url = f"https://www.uufinds.com/qcfinds?id={product_id}"
-        headers = {'User-Agent': 'Mozilla/5.0'}
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
         response = requests.get(search_url, headers=headers, timeout=5)
         
-        if response.status_status == 200:
+        if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
-            # Szukamy tagu img, który zawiera zdjęcia QC (selektor może wymagać korekty zależnie od zmian na stronie)
-            img_tag = soup.find('img', {'src': re.compile(r'qc')})
+            # Szukanie obrazka w galerii QC
+            img_tag = soup.find('img', {'src': re.compile(r'qc|storage')})
             if img_tag:
                 return img_tag['src']
     except Exception as e:
-        print(f"Błąd pobierania QC: {e}")
+        print(f"Błąd pobierania zdjęcia: {e}")
     return None
 
 def extract_id(url):
@@ -57,7 +58,7 @@ def extract_id(url):
     return None, None, None, None
 
 class LinkButtons(View):
-    """Klasa tworząca ładne przyciski pod embedem."""
+    """Tworzy rządek przycisków pod wiadomością."""
     def __init__(self, links):
         super().__init__()
         for label, url in links.items():
@@ -65,13 +66,16 @@ class LinkButtons(View):
 
 @bot.event
 async def on_ready():
-    print(f'✅ Bot QC gotowy. Kolor paska: Czerwony. Kanał: {ALLOWED_CHANNEL_ID}')
+    print(f'✅ Bot aktywny!')
+    print(f'📺 Kanał: {ALLOWED_CHANNEL_ID}')
+    print(f'🔴 Kolor: Czerwony')
 
 @bot.event
 async def on_message(message):
-    if message.author.bot or message.channel.id != ALLOWED_CHANNEL_ID:
-        return
+    if message.author.bot: return
+    if message.channel.id != ALLOWED_CHANNEL_ID: return
 
+    # Wykrywanie linków
     targets = ["taobao.com", "weidian.com", "1688.com", "tmall.com"]
     if any(x in message.content.lower() for x in targets):
         match = re.search(r'(https?://\S+)', message.content)
@@ -82,29 +86,28 @@ async def on_message(message):
             if product_id:
                 encoded_url = urllib.parse.quote(clean_url, safe='')
                 
-                # Generowanie linków
+                # Przygotowanie linków dla przycisków
                 links = {
                     "USFans": f"https://www.usfans.com/product/{usf_type}/{product_id}?inviteCode={AFFILIATE_CODES['usfans']}",
                     "Kakobuy": f"https://www.kakobuy.com/item/details?url={encoded_url}&affcode={AFFILIATE_CODES['kakobuy']}",
                     "ACBuy": f"https://m.acbuy.com/product?id={product_id}&source={ac_type}&inviteCode={AFFILIATE_CODES['acbuy']}",
+                    "MuleBuy": f"https://mulebuy.com/product/?shop_type={ac_type.lower()}&id={product_id}",
                     "Weidian Raw": clean_url
                 }
 
-                # Pobieranie zdjęcia
+                # Próba pobrania zdjęcia QC
                 qc_image = get_uufinds_qc(product_id)
 
                 embed = discord.Embed(
-                    title=f"Kakobuy QC Set (ID: {product_id})",
-                    description=f"Więcej zdjęć zobaczysz na [UUFinds](https://www.uufinds.com/qcfinds?id={product_id})",
-                    color=0xff0000 # Czerwony pasek
+                    title="Kakobuy QC Set (QC Finder)",
+                    description=f"Pobrano zdjęcia dla produktu ID: **{product_id}**\n\n[Zobacz wszystkie zdjęcia na UUFinds](https://www.uufinds.com/qcfinds?id={product_id})",
+                    color=0xff0000  # Czysty czerwony
                 )
                 
                 if qc_image:
                     embed.set_image(url=qc_image)
-                else:
-                    embed.set_footer(text="Nie znaleziono podglądu QC na UUFinds.")
-
-                embed.set_author(name=f"Created By {message.author.display_name}", icon_url=message.author.avatar.url if message.author.avatar else None)
+                
+                embed.set_footer(text=f"Wygenerowano dla {message.author.display_name}", icon_url=message.author.display_avatar.url)
 
                 await message.reply(embed=embed, view=LinkButtons(links))
 
