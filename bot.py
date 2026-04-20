@@ -1,104 +1,93 @@
 import discord
-from discord.ext import commands
-from discord.ui import Button, View
-import re
-import urllib.parse
-import os
+from discord import app_commands
 import requests
+from bs4 import BeautifulSoup
+import os
 
 # --- KONFIGURACJA ---
 TOKEN = os.getenv('DISCORD_TOKEN')
-ALLOWED_CHANNEL_ID = 1457766095531278529 
+ALLOWED_CHANNEL_ID = 1495575003004010636  # ID Twojego kanału
 
-AFFILIATE_CODES = {
-    "usfans": "DJPZ6T",
-    "acbuy": "KV2WLD",
-    "kakobuy": "maksr3ps",
-    "mulebuy": "201154557"
-}
+class TrackingBot(discord.Client):
+    def __init__(self):
+        intents = discord.Intents.default()
+        super().__init__(intents=intents)
+        self.tree = app_commands.CommandTree(self)
 
-intents = discord.Intents.default()
-intents.message_content = True
-bot = commands.Bot(command_prefix="!", intents=intents)
+    async def setup_hook(self):
+        await self.tree.sync()
+        print(f"Bot zalogowany jako {self.user} i gotowy do pracy!")
 
-def get_product_image(product_id, platform):
-    """Pobiera zdjęcie produktu bezpośrednio z serwerów platform (omija uufinds)"""
-    if platform == "WEIDIAN":
-        return f"https://pic.everguide.info/weidian/item/{product_id}/1.jpg"
-    elif platform == "TAOBAO":
-        # Taobao często pozwala na taki bezpośredni dostęp
-        return f"https://img.alicdn.com/imgextra/i1/{product_id}.jpg"
+client = TrackingBot()
+
+def scrape_fujexp(tracking_number):
+    """Pobiera dane bezpośrednio z chińskiego portalu bez API"""
+    url = f"http://106.55.5.75:8082/trackIndex.htm?trackNumber={tracking_number}"
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
+    
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            # Szukamy wierszy w tabeli (Struktura oparta na Twoim screenie)
+            rows = soup.find_all('tr') 
+            
+            updates = []
+            for row in rows:
+                cols = row.find_all('td')
+                if len(cols) >= 2:
+                    time = cols[0].text.strip()
+                    status = cols[1].text.strip()
+                    if time and status: # Pomijamy puste wiersze
+                        updates.append(f"📅 **{time}**\n📝 {status}")
+            return updates
+    except Exception as e:
+        print(f"Błąd scrapingu: {e}")
     return None
 
-def extract_id(url):
-    url = url.lower()
-    if "taobao.com" in url or "tmall.com" in url:
-        m = re.search(r'id=(\d+)', url)
-        if m: return m.group(1), "1", "TB", "TAOBAO", f"https://item.taobao.com/item.htm?id={m.group(1)}"
-    if "weidian.com" in url:
-        m = re.search(r'(?:itemid|item_id|itemID=)(\d+)', url)
-        if not m: m = re.search(r'itemid=(\d+)', url)
-        if m: return m.group(1), "1", "WD", "WEIDIAN", f"https://weidian.com/item.html?itemID={m.group(1)}"
-    if "1688.com" in url:
-        m = re.search(r'(?:offer/|id=)(\d+)', url)
-        if m: return m.group(1), "2", "1688", "ALI_1688", f"https://detail.1688.com/offer/{m.group(1)}.html"
-    return None, None, None, None, None
-
-class QCView(View):
-    def __init__(self, links_dict, uufinds_url):
-        super().__init__(timeout=None)
-        # PRZYCISK LOOKUP - row=0 (Góra)
-        self.add_item(Button(label="Lookup 🔗", url=uufinds_url, style=discord.ButtonStyle.link, row=0))
-        
-        # LINKI DO AGENTÓW - row=1 (Dół)
-        order = ["Kakobuy", "USFans", "ACBuy", "Mulebuy", "RAW"]
-        for label in order:
-            if label in links_dict:
-                self.add_item(Button(label=label, url=links_dict[label], style=discord.ButtonStyle.link, row=1))
-
-@bot.event
-async def on_ready():
-    print(f'✅ Bot gotowy. Używam bezpośrednich linków do zdjęć.')
-
-@bot.event
-async def on_message(message):
-    if message.author.bot or message.channel.id != ALLOWED_CHANNEL_ID:
+@client.tree.command(name="track", description="Śledź paczkę (tylko na wybranym kanale)")
+@app_commands.describe(numer="Wprowadź numer śledzenia")
+async def track(interaction: discord.Interaction, numer: str):
+    # SPRAWDZENIE KANAŁU
+    if interaction.channel_id != ALLOWED_CHANNEL_ID:
+        await interaction.response.send_message(
+            f"❌ Ta komenda może być używana tylko na kanale <#{ALLOWED_CHANNEL_ID}>!", 
+            ephemeral=True
+        )
         return
 
-    match = re.search(r'(https?://\S+)', message.content)
-    if match:
-        original_url = match.group(0).rstrip(').,!]')
-        product_id, usf_type, ac_type, mule_type, platform = extract_id(original_url)
-        
-        if product_id:
-            # Link do zdjęć QC na UUFinds (Lookup)
-            uufinds_url = f"https://www.uufinds.com/qcfinds?url={urllib.parse.quote(original_url)}"
-            
-            # Próbujemy pobrać bezpośrednie zdjęcie produktu
-            img_url = get_product_image(product_id, platform)
-            
-            # Jeśli nie mamy bezpośredniego, dajemy logo (zabezpieczenie)
-            final_img = img_url if img_url else "https://www.uufinds.com/favicon.ico"
+    # Informujemy o pracy (ephemeral - tylko dla użytkownika)
+    await interaction.response.defer(ephemeral=True)
+    
+    updates = scrape_fujexp(numer)
+    
+    if not updates:
+        await interaction.followup.send("❌ Nie znaleziono danych dla tego numeru lub błąd serwera.", ephemeral=True)
+        return
 
-            embed = discord.Embed(title="Zdjęcia produktu", color=0xff0000)
-            embed.set_image(url=final_img)
-            
-            # Linki afiliacyjne
-            encoded_clean = urllib.parse.quote(original_url, safe='')
-            links_dict = {
-                "Kakobuy": f"https://www.kakobuy.com/item/details?url={encoded_clean}&affcode={AFFILIATE_CODES['kakobuy']}",
-                "USFans": f"https://www.usfans.com/product/{usf_type}/{product_id}?inviteCode={AFFILIATE_CODES['usfans']}",
-                "ACBuy": f"https://m.acbuy.com/product?id={product_id}&source={ac_type}&inviteCode={AFFILIATE_CODES['acbuy']}",
-                "Mulebuy": f"https://m.mulebuy.com/pages/product/product?shoptype={mule_type}&id={product_id}&inviteCode={AFFILIATE_CODES['mulebuy']}",
-                "RAW": original_url
-            }
+    # 1. Embed podsumowujący (Widoczny tylko dla Ciebie na kanale)
+    summary_embed = discord.Embed(title="📦 Status Przesyłki", color=0x2b2d31)
+    summary_embed.add_field(name="Numer", value=f"`{numer}`", inline=True)
+    summary_embed.add_field(name="Ostatni Status", value=updates[0], inline=False)
+    summary_embed.set_footer(text="Pełna historia została wysłana na Twoje DM.")
+    
+    await interaction.followup.send(embed=summary_embed, ephemeral=True)
 
-            view = QCView(links_dict, uufinds_url)
-            
-            # Tekst nad embedem
-            msg_text = f"**QC znalezione dla linku:**\n{original_url}\n\nKliknij **Lookup**, aby zobaczyć wszystkie zdjęcia."
-            
-            await message.reply(content=msg_text, embed=embed, view=view)
+    # 2. Pełna historia na DM
+    history_embed = discord.Embed(
+        title=f"🛤️ Pełna Historia: {numer}",
+        description="Oto wszystkie etapy Twojej paczki:",
+        color=0x5865f2
+    )
+    
+    full_history = "\n\n".join(updates[:20]) # Limit 20 statusów
+    history_embed.description = full_history
 
-if TOKEN:
-    bot.run(TOKEN)
+    try:
+        await interaction.user.send(embed=history_embed)
+    except discord.Forbidden:
+        await interaction.followup.send("⚠️ Masz zablokowane wiadomości prywatne (DM)!", ephemeral=True)
+
+client.run(TOKEN)
