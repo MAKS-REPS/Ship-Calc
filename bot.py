@@ -4,107 +4,103 @@ from discord.ext import commands
 import os
 from dotenv import load_dotenv
 
-# Ładowanie zmiennych (Railway sam je podstawi)
+# Inicjalizacja zmiennych
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 GUILD_ID = os.getenv('GUILD_ID')
 
-class MyBot(commands.Bot):
+class ShipCalcBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
-        intents.message_content = True
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
+        # Synchronizacja komend slash
         if GUILD_ID:
             guild = discord.Object(id=int(GUILD_ID))
             self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
-            print(f"✅ Komendy slash zsynchronizowane dla serwera: {GUILD_ID}")
         else:
             await self.tree.sync()
-            print("✅ Komendy slash zsynchronizowane globalnie")
 
-bot = MyBot()
+bot = ShipCalcBot()
 
-# --- LOGIKA OBLICZEŃ ---
-def przelicz_ceny(platforma, waga, ubezpieczenie):
-    # Przykładowe stawki (Baza + cena za 100g). Edytuj te wartości wg kalkulatorów USFans/Kakobuy.
+# --- DANE DO OBLICZEŃ ---
+# Możesz tutaj zmieniać stawki w dowolnym momencie
+def przelicz_koszt(platforma, waga_g, ubezpieczenie):
+    # Stawki przykładowe (PLN)
+    # baza = stała opłata za paczkę
+    # co_100g = koszt za każde rozpoczęte 100g
+    # kupon = % ceny (0.85 to zniżka 15%)
     stawki = {
-        "Kakobuy": {"start": 72.0, "per_100g": 5.8, "kupon_mnoznik": 0.90},
-        "USFans": {"start": 78.0, "per_100g": 6.2, "kupon_mnoznik": 0.88}
+        "Kakobuy": {"baza": 65.0, "co_100g": 5.4, "kupon": 0.85},
+        "USFans": {"baza": 70.0, "co_100g": 5.9, "kupon": 0.88}
     }
     
-    p = stawki[platforma]
-    cena_bazowa = p["start"] + ((waga / 100) * p["per_100g"])
+    s = stawki[platforma]
+    waga_kg = waga_g / 100
+    cena_podstawowa = s["baza"] + (waga_kg * s["co_100g"])
     
-    # Dodatek za ubezpieczenie (np. 4%)
-    koszt_ub = round(cena_bazowa * 0.04, 2) if ubezpieczenie == "Tak" else 0.0
+    koszt_ub = 0.0
+    if ubezpieczenie == "Tak":
+        koszt_ub = round(cena_podstawowa * 0.04, 2) # 4% ubezpieczenia
+        
+    suma = cena_podstawowa + koszt_ub
+    suma_kupon = suma * s["kupon"]
     
-    total = cena_bazowa + koszt_ub
-    total_z_kuponem = total * p["kupon_mnoznik"]
-    
-    return round(total, 2), round(total_z_kuponem, 2), koszt_ub
+    return round(suma, 2), round(suma_kupon, 2), koszt_ub
 
-# --- KOMENDA SLASH ---
-@bot.tree.command(name="oblicz", description="Kalkulator wysyłki Kakobuy/USFans + QC")
+# --- KOMENDA OBLICZ ---
+@bot.tree.command(name="oblicz", description="Kalkulator kosztów wysyłki USFans / Kakobuy")
 @app_commands.describe(
-    platforma="Wybierz agenta",
-    waga="Waga w gramach (np. 4500)",
-    ubezpieczenie="Czy dodać ubezpieczenie paczki?",
-    link="Opcjonalnie: Link do produktu (Weidian/Taobao/1688)"
+    agent="Wybierz platformę (USFans lub Kakobuy)",
+    waga="Wpisz wagę paczki w gramach (np. 5500)",
+    pudelka="Czy zachować oryginalne pudełka butów?",
+    ubezpieczenie="Czy dodać ubezpieczenie paczki?"
 )
-@app_commands.choices(platforma=[
+@app_commands.choices(agent=[
     app_commands.Choice(name="Kakobuy", value="Kakobuy"),
     app_commands.Choice(name="USFans", value="USFans"),
+])
+@app_commands.choices(pudelka=[
+    app_commands.Choice(name="Tak (Standard)", value="Tak"),
+    app_commands.Choice(name="Nie (Usuń pudełka - lżejsza paczka)", value="Nie"),
 ])
 @app_commands.choices(ubezpieczenie=[
     app_commands.Choice(name="Tak (Zalecane)", value="Tak"),
     app_commands.Choice(name="Nie", value="Nie"),
 ])
-async def oblicz(interaction: discord.Interaction, platforma: str, waga: int, ubezpieczenie: str, link: str = None):
-    # Zapobiega błędom "Aplikacja nie reaguje"
-    await interaction.response.defer()
+async def oblicz(interaction: discord.Interaction, agent: str, waga: int, pudelka: str, ubezpieczenie: str):
+    await interaction.response.defer() # Zapobiega błędom ładowania
 
-    cena_b, cena_k, koszt_ub = przelicz_ceny(platforma, waga, ubezpieczenie)
+    total, kupon, koszt_ub = przelicz_koszt(agent, waga, ubezpieczenie)
 
-    # Budowanie Embed (wygląd jak na zdjęciu)
+    # Tworzenie Embed
     embed = discord.Embed(
-        title=f"📦 Kalkulacja dla {platforma}",
-        color=0x2ecc71 if platforma == "Kakobuy" else 0x3498db,
-        description=f"Szacunkowy koszt wysyłki dla paczki **{waga}g**."
+        title=f"🚢 Kalkulator Przesyłki: {agent}",
+        color=0x2ecc71 if agent == "Kakobuy" else 0x3498db
     )
     
-    embed.add_field(name="⚖️ Waga", value=f"{waga} g", inline=True)
-    embed.add_field(name="🛡️ Ubezpieczenie", value=f"{ubezpieczenie} (+{koszt_ub} PLN)" if ubezpieczenie == "Tak" else "Brak", inline=True)
+    embed.add_field(name="⚖️ Waga", value=f"**{waga} g**", inline=True)
+    embed.add_field(name="📦 Pudełka", value=pudelka, inline=True)
     
-    # Przykładowy kurier DHL
+    ub_text = f"Tak (+{koszt_ub} PLN)" if ubezpieczenie == "Tak" else "Nie"
+    embed.add_field(name="🛡️ Ubezpieczenie", value=ub_text, inline=True)
+    
+    # DHL Tariffless (Najpopularniejsza linia)
     embed.add_field(
-        name="🚀 DHL (Tax-Free)", 
-        value=f"Cena standardowa: ~~{cena_b} PLN~~\nCena z kuponem: **{cena_k} PLN**", 
+        name="✈️ DHL Tariffless / DPD", 
+        value=f"Cena bazowa: ~~{total} PLN~~\nCena z kuponem: **{kupon} PLN**", 
         inline=False
     )
-
-    # Przycisk View (Przycisk do QC i Zakupu)
-    view = discord.ui.View()
-    if link:
-        # Link do QC przez UUFinds (automatyczny)
-        qc_url = f"https://www.uufinds.com/qc?url={link}"
-        # Link do zakupu przez wybranego agenta
-        agent_url = f"https://www.{platforma.lower()}.com/index/item/index?url={link}"
-        
-        view.add_item(discord.ui.Button(label="🔍 Zobacz QC", url=qc_url, style=discord.ButtonStyle.link))
-        view.add_item(discord.ui.Button(label=f"🛒 Kup na {platforma}", url=agent_url, style=discord.ButtonStyle.link))
-
-    await interaction.followup.send(embed=embed, view=view)
+    
+    embed.set_footer(text="Cena szacunkowa. Pamiętaj o doliczeniu kosztu wolumetrycznego.")
+    
+    await interaction.followup.send(embed=embed)
 
 @bot.event
 async def on_ready():
-    print(f"🚀 Bot zalogowany jako {bot.user}")
+    print(f"✅ Kalkulator gotowy! Zalogowano jako {bot.user}")
 
-# Uruchomienie bota
 if __name__ == "__main__":
-    if not TOKEN:
-        print("❌ BŁĄD: Brak tokena DISCORD_TOKEN w zmiennych środowiskowych!")
-    else:
-        bot.run(TOKEN)
+    bot.run(TOKEN)
