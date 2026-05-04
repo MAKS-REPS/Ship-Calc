@@ -36,7 +36,7 @@ def przelicz_koszt(platforma, waga_g, ubezpieczenie):
         "Kakobuy": {
             "baza": 60.0, 
             "gram": 0.054, 
-            "kupon": 0.85  # -15%
+            "kupon": 0.80  # ZMIENIONO z 0.85 na 0.80 (-20%)
         },
         "USFans": {
             "baza": 0.0,    
@@ -108,7 +108,7 @@ async def oblicz(interaction: discord.Interaction, agent: str, waga: int, pudelk
     )
     
     # Dynamiczny stopka zależnie od agenta
-    znizka_procent = "30%" if agent == "USFans" else "15%"
+    znizka_procent = "30%" if agent == "USFans" else "20%" # ZMIENIONO z 15% na 20%
     embed.set_footer(text=f"Zastosowano kupon zniżkowy: -{znizka_procent}")
     
     await interaction.followup.send(embed=embed)
