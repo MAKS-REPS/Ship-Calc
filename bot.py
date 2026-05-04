@@ -29,19 +29,19 @@ bot = ShipCalcBot()
 # --- POPRAWIONA LOGIKA CENOWA ---
 def przelicz_koszt(platforma, waga_g, ubezpieczenie):
     """
-    USFans: 10kg (10000g) = 500 PLN baza -> 350 PLN po kuponie -30%
+    USFans: 10kg (10000g) = 500 PLN baza -> 300 PLN po kuponie -40%
     Stawka: 0.05 PLN za gram
     """
     stawki = {
         "Kakobuy": {
             "baza": 60.0, 
             "gram": 0.054, 
-            "kupon": 0.80  # ZMIENIONO z 0.85 na 0.80 (-20%)
+            "kupon": 0.80  # -20%
         },
         "USFans": {
             "baza": 0.0,    
             "gram": 0.05,   # 10000g * 0.05 = 500 PLN
-            "kupon": 0.70   # -30% (Twoja zniżka)
+            "kupon": 0.60   # ZMIENIONO z 0.70 na 0.60 (-40%)
         }
     }
     
@@ -108,7 +108,7 @@ async def oblicz(interaction: discord.Interaction, agent: str, waga: int, pudelk
     )
     
     # Dynamiczny stopka zależnie od agenta
-    znizka_procent = "30%" if agent == "USFans" else "20%" # ZMIENIONO z 15% na 20%
+    znizka_procent = "40%" if agent == "USFans" else "20%" # ZMIENIONO z 30% na 40%
     embed.set_footer(text=f"Zastosowano kupon zniżkowy: -{znizka_procent}")
     
     await interaction.followup.send(embed=embed)
