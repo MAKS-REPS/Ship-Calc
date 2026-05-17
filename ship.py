@@ -2,30 +2,35 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-# --- POPRAWIONA LOGIKA CENOWA W PLN (ZAMIANA AGENTÓW) ---
+# --- W PEŁNI ODZWIERCIEDLONA LOGIKA OFICJALNYCH CENNIKÓW ---
 def przelicz_koszt(platforma, waga_g, ubezpieczenie):
-    stawki = {
-        "Kakobuy": {
-            "baza": 0.0, 
-            "gram": 0.068116,  # Co daje ~681.16 PLN za 10kg bez kuponu
-            "kupon": 0.80      # -20% (Kod: Maks20)
-        },
-        "USFans": {
-            "baza": 0.0,    
-            "gram": 0.056429,  # Co daje ~564.29 PLN za 10kg bez kuponu
-            "kupon": 0.60      # -40% (Kod: DJPZ6T) -> Wynik: ~338.58 PLN
-        }
-    }
-    
-    s = stawki[platforma]
-    cena_podstawowa = s["baza"] + (waga_g * s["gram"])
-    
+    # Zapobiegamy błędowi, jeśli ktoś wpisze ujemną wagę lub 0
+    if waga_g < 500:
+        waga_g = 500
+        
+    if platforma == "USFans":
+        # Pierwsze 500g = 71.35 PLN. Każde kolejne 500g = 25.94 PLN
+        cena_baza_bez_kuponu = 71.35
+        if waga_g > 500:
+            dodatkowa_waga = waga_g - 500
+            cena_baza_bez_kuponu += dodatkowa_waga * (25.94 / 500)
+        kupon_mnoznik = 0.60  # Kupon -40% (Kod: DJPZ6T)
+        
+    else:  # Kakobuy
+        # Pierwsze 500g = 70.41 PLN. Każde kolejne 500g = 32.14 PLN
+        cena_baza_bez_kuponu = 70.41
+        if waga_g > 500:
+            dodatkowa_waga = waga_g - 500
+            cena_baza_bez_kuponu += dodatkowa_waga * (32.14 / 500)
+        kupon_mnoznik = 0.80  # Kupon -20% (Kod: Maks20)
+        
     koszt_ub = 0.0
     if ubezpieczenie == "Tak":
-        koszt_ub = round(cena_podstawowa * 0.04, 2)
+        # Standardowe ubezpieczenie paczki (4% od wartości bazowej wysyłki)
+        koszt_ub = round(cena_baza_bez_kuponu * 0.04, 2)
         
-    suma_brutto = cena_podstawowa + koszt_ub
-    suma_z_kuponem = suma_brutto * s["kupon"]
+    suma_brutto = cena_baza_bez_kuponu + koszt_ub
+    suma_z_kuponem = suma_brutto * kupon_mnoznik
     
     return round(suma_brutto, 2), round(suma_z_kuponem, 2), koszt_ub
 
@@ -113,7 +118,7 @@ class KakobuyModal(discord.ui.Modal, title="Kalkulator Wysyłki - Kakobuy"):
             ub_text = f"Tak (+{koszt_ub} PLN)" if ub_choice == "Tak" else "Nie"
             embed.add_field(name="🛡️ Ubezpieczenie", value=ub_text, inline=True)
             embed.add_field(
-                name="✈️ Linia: DHL Duty-Free Fast Line J", 
+                name="✈️ Linia: Europe DHL Line (Express Line)", 
                 value=f"Cena baza: ~~{total} PLN~~\nCena z kuponem: **{kupon} PLN**", 
                 inline=False
             )
@@ -167,7 +172,7 @@ class ShipCalc(commands.Cog):
         if agent == "Kakobuy":
             embed_color = discord.Color.red()
             agent_emoji = "<:kakobuy1:1505517561846960138>"
-            linia_text = "DHL Duty-Free Fast Line J"
+            linia_text = "Europe DHL Line (Express Line)"
             kod_text = "**Maks20** (-20%)"
         else:
             embed_color = discord.Color.blue()
