@@ -5,6 +5,10 @@ import asyncio
 import io
 from typing import Optional
 
+# ==================== KONFIGURACJA UPRAWNIEŃ ====================
+OWNER_ROLE_ID = 1457769309735485450  # ID Twojej roli Owner
+# ================================================================
+
 class Ogloszenia(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -28,9 +32,8 @@ class Ogloszenia(commands.Cog):
         app_commands.Choice(name="10 osób", value=10),
         app_commands.Choice(name="50 osób", value=50),
         app_commands.Choice(name="100 osób", value=100),
-        app_commands.Choice(name="Wszyscy użytkownicy", value=-1)  # -1 oznacza brak limitu
+        app_commands.Choice(name="Wszyscy użytkownicy", value=-1)
     ])
-    @app_commands.checks.has_permissions(administrator=True)
     async def ogloszenie(
         self, 
         interaction: discord.Interaction, 
@@ -40,13 +43,20 @@ class Ogloszenia(commands.Cog):
         limit_osob: int,
         obraz: Optional[discord.Attachment] = None
     ):
-        # Informujemy Discorda, że bot przetwarza dane (zapobiega timeoutowi interakcji)
+        # --- SPRAWDZENIE CZY UŻYTKOWNIK MA RANGĘ OWNERA ---
+        if not interaction.guild:
+            await interaction.response.send_message("❌ Tej komendy można użyć tylko na serwerze!", ephemeral=True)
+            return
+            
+        ranga_owner = interaction.user.get_role(OWNER_ROLE_ID)
+        if not ranga_owner:
+            await interaction.response.send_message("❌ Nie masz uprawnień! Tylko osoba z rangą <@&1457769309735485450> może tego użyć.", ephemeral=True)
+            return
+
+        # Informujemy Discorda, że bot przetwarza dane
         await interaction.response.defer(ephemeral=True)
 
         guild = interaction.guild
-        if not guild:
-            await interaction.followup.send("❌ Tej komendy można użyć tylko na serwerze Discord!", ephemeral=True)
-            return
 
         # Mapowanie wybranego koloru embeda
         kolory_map = {
@@ -81,7 +91,6 @@ class Ogloszenia(commands.Cog):
         bledy = 0
         wyslane_do_liczba = 0
 
-        # Lista do zbierania raportu tekstowego o użytkownikach
         lista_raportu = []
         lista_raportu.append(f"RAPORT Z WYSYŁKI OGŁOSZENIA: {tytul}")
         lista_raportu.append(f"Serwer: {guild.name}")
@@ -93,7 +102,6 @@ class Ogloszenia(commands.Cog):
             if member.bot:
                 continue
 
-            # Jeśli ustawiono konkretny limit i został on osiągnięty – przerywamy wysyłanie
             if limit_osob != -1 and wyslane_do_liczba >= limit_osob:
                 break
 
@@ -102,39 +110,30 @@ class Ogloszenia(commands.Cog):
             try:
                 await member.send(embed=embed)
                 sukcesy += 1
-                lista_raportu.append(f"[SUKCES] {member.name}#{member.discriminator} (ID: {member.id}) - Wiadomość dostarczona.")
-                # Anty-Spam: Bezpieczny odstęp czasowy
+                lista_raportu.append(f"[SUKCES] {member.name} (ID: {member.id}) - Wiadomość dostarczona.")
                 await asyncio.sleep(2.5)
             except discord.Forbidden:
                 bledy += 1
-                lista_raportu.append(f"[BLOKADA] {member.name}#{member.discriminator} (ID: {member.id}) - Zablokowane wiadomości prywatne.")
+                lista_raportu.append(f"[BLOKADA] {member.name} (ID: {member.id}) - Zablokowane wiadomości prywatne.")
             except Exception as e:
                 bledy += 1
-                lista_raportu.append(f"[BŁĄD] {member.name}#{member.discriminator} (ID: {member.id}) - Nieznany błąd: {e}")
+                lista_raportu.append(f"[BŁĄD] {member.name} (ID: {member.id}) - Nieznany błąd: {e}")
 
-        # Przygotowanie pliku tekstowego z raportem
         raport_tekst = "\n".join(lista_raportu)
         plik_raportu = discord.File(io.BytesIO(raport_tekst.encode('utf-8')), filename="odbiorcy.txt")
 
-        # Generowanie końcowego embeda z podsumowaniem dla administratora
         raport_embed = discord.Embed(
             title="✅ Wysyłanie ogłoszenia zakończone!",
             description=(
                 f"📊 **Statystyki wysyłki:**\n"
                 f"🟢 Wysłano pomyślnie: **{sukcesy}** osób\n"
                 f"🔴 Pominięto / Błędy: **{bledy}** osób\n\n"
-                f"ℹ️ *Poniżej znajduje się plik tekstowy z pełną listą osób, które otrzymały lub zablokowały tę wiadomość.*"
+                f"ℹ️ *Poniżej znajduje się plik tekstowy z pełną listą osób.*"
             ),
             color=discord.Color.green()
         )
         
-        # Wysyłamy odpowiedź zawierającą podsumowanie oraz załącznik z plikiem tekstowym
         await interaction.followup.send(embed=raport_embed, file=plik_raportu, ephemeral=True)
-
-    @ogloszenie.error
-    async def ogloszenie_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
-        if isinstance(error, app_commands.MissingPermissions):
-            await interaction.response.send_message("❌ Nie masz uprawnień (`Administrator`) do używania tej komendy!", ephemeral=True)
 
 
 async def setup(bot):
