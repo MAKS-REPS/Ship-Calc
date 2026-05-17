@@ -10,13 +10,13 @@ GUILD_ID = os.getenv('GUILD_ID')
 
 class GłównyBot(commands.Bot):
     def __init__(self):
-        # POPRAWIONE: Zmiana z .default() na .all(), aby bot miał pełne uprawnienia (Intents)
+        # Pełne uprawnienia (Intents.all()) zapewniają, że bot widzi dołączających użytkowników (on_member_join)
         intents = discord.Intents.all()
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
-        # 🔗 ŁĄCZNIK: Lista modułów do załadowania
-        moduly = ['ship', 'kupony']
+        # 🔗 ŁĄCZNIK: Rozszerzona lista modułów (dodano 'dm')
+        moduly = ['ship', 'kupony', 'dm']
         
         for modul in moduly:
             try:
