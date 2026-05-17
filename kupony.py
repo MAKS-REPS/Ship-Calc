@@ -4,7 +4,7 @@ from discord import app_commands
 from datetime import datetime
 
 # ==================== KONFIGURACJA MODUŁU ====================
-CHANNEL_ID = 123456789012345678  # Tutaj wpisz ID swojego kanału tekstowego
+CHANNEL_ID = > 1457763945631715456  # Tutaj wpisz ID swojego kanału tekstowego
 # =============================================================
 
 class Kupony(commands.Cog):
