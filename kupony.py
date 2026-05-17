@@ -4,7 +4,7 @@ from discord import app_commands
 from datetime import datetime
 
 # ==================== KONFIGURACJA MODUŁU ====================
-CHANNEL_ID = 1457763945631715456  # Twoje zaktualizowane ID kanału
+CHANNEL_ID = 1457763945631715456  # Twoje ID czatu
 # =============================================================
 
 class Kupony(commands.Cog):
@@ -19,7 +19,7 @@ class Kupony(commands.Cog):
         embed = discord.Embed(
             title="📢 ODBIERZ DARMOWE KUPONY NA PIERWSZĄ PACZKĘ",
             description=(
-                "<:KAKOBUY_LOGO:1505517561846960138> Jeśli nie masz jeszcze konta na kakobuy to [kliknji tu](https://ikako.vip/r/maksr3ps) "
+                "<:KAKOBUY_LOGO:1465816795356336421> Jeśli nie masz jeszcze konta na kakobuy to [kliknji tu](https://ikako.vip/r/maksr3ps) "
                 "i odbierz darmowe kupony na start.\n\n"
                 "<a:Moneywithwings:12251546027777837740> dodatkowo wpisując kod **Maks.R3ps** otrzymasz darmowe 15$ na wysyłkę.\n\n"
                 "🏷️ Po wpisaniu kodu **Maks20** dostaje sie kupon na -20%!"
@@ -32,6 +32,7 @@ class Kupony(commands.Cog):
     async def wysylaj_ogloszenie(self):
         aktualna_godzina = datetime.now().hour
         
+        # Wysyłanie tylko w godzinach 8:00 - 22:00
         if 8 <= aktualna_godzina <= 22:
             channel = self.bot.get_channel(CHANNEL_ID)
             if channel:
@@ -54,3 +55,4 @@ class Kupony(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(Kupony(bot))
+    
