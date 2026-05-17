@@ -2,18 +2,18 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-# --- LOGIKA CENOWA (ZWRACA WARTOŚCI W PLN) ---
+# --- POPRAWIONA LOGIKA CENOWA W PLN (ZAMIANA AGENTÓW) ---
 def przelicz_koszt(platforma, waga_g, ubezpieczenie):
     stawki = {
         "Kakobuy": {
-            "baza": 60.0, 
-            "gram": 0.054, 
-            "kupon": 0.80  # -20%
+            "baza": 0.0, 
+            "gram": 0.068116,  # Co daje ~681.16 PLN za 10kg bez kuponu
+            "kupon": 0.80      # -20% (Kod: Maks20)
         },
         "USFans": {
             "baza": 0.0,    
-            "gram": 0.05,   
-            "kupon": 0.60   # -40%
+            "gram": 0.056429,  # Co daje ~564.29 PLN za 10kg bez kuponu
+            "kupon": 0.60      # -40% (Kod: DJPZ6T) -> Wynik: ~338.58 PLN
         }
     }
     
@@ -55,7 +55,6 @@ class KalkulatorWysylkiView(discord.ui.View):
     async def select_callback(self, interaction: discord.Interaction, select: discord.ui.Select):
         wybrany_agent = select.values[0]
         
-        # Otwieranie odpowiedniego formularza po wyborze z menu
         if wybrany_agent == "USFans":
             await interaction.response.send_modal(UsfansModal())
         elif wybrany_agent == "Kakobuy":
@@ -64,7 +63,7 @@ class KalkulatorWysylkiView(discord.ui.View):
 
 # ==================== MODAL DLA USFANS ====================
 class UsfansModal(discord.ui.Modal, title="Kalkulator Wysyłki - Usfans"):
-    waga = discord.ui.TextInput(label="Waga paczki (w gramach, np. 3500)", placeholder="Wpisz wagę...", required=True)
+    waga = discord.ui.TextInput(label="Waga paczki (w gramach, np. 10000)", placeholder="Wpisz wagę...", required=True)
     ubezpieczenie = discord.ui.TextInput(label="Ubezpieczenie? (Wpisz: Tak lub Nie)", placeholder="Tak / Nie", default="Tak", required=True)
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -82,7 +81,7 @@ class UsfansModal(discord.ui.Modal, title="Kalkulator Wysyłki - Usfans"):
             ub_text = f"Tak (+{koszt_ub} PLN)" if ub_choice == "Tak" else "Nie"
             embed.add_field(name="🛡️ Ubezpieczenie", value=ub_text, inline=True)
             embed.add_field(
-                name="✈️ Linia: DHL Tariffless / DPD", 
+                name="✈️ Linia: DHL Line in Poland (Tax-free)", 
                 value=f"Cena baza: ~~{total} PLN~~\nCena z kuponem: **{kupon} PLN**", 
                 inline=False
             )
@@ -96,7 +95,7 @@ class UsfansModal(discord.ui.Modal, title="Kalkulator Wysyłki - Usfans"):
 
 # ==================== MODAL DLA KAKOBUY ====================
 class KakobuyModal(discord.ui.Modal, title="Kalkulator Wysyłki - Kakobuy"):
-    waga = discord.ui.TextInput(label="Waga paczki (w gramach, np. 3500)", placeholder="Wpisz wagę...", required=True)
+    waga = discord.ui.TextInput(label="Waga paczki (w gramach, np. 10000)", placeholder="Wpisz wagę...", required=True)
     ubezpieczenie = discord.ui.TextInput(label="Ubezpieczenie? (Wpisz: Tak lub Nie)", placeholder="Tak / Nie", default="Tak", required=True)
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -114,7 +113,7 @@ class KakobuyModal(discord.ui.Modal, title="Kalkulator Wysyłki - Kakobuy"):
             ub_text = f"Tak (+{koszt_ub} PLN)" if ub_choice == "Tak" else "Nie"
             embed.add_field(name="🛡️ Ubezpieczenie", value=ub_text, inline=True)
             embed.add_field(
-                name="✈️ Linia: DHL Tariffless / DPD", 
+                name="✈️ Linia: DHL Duty-Free Fast Line J", 
                 value=f"Cena baza: ~~{total} PLN~~\nCena z kuponem: **{kupon} PLN**", 
                 inline=False
             )
@@ -131,7 +130,6 @@ class ShipCalc(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    # Komenda interaktywna (Wybór z menu)
     @app_commands.command(name="ship", description="Otwiera kalkulator wyceny wysyłki paczek")
     async def ship(self, interaction: discord.Interaction):
         view = KalkulatorWysylkiView()
@@ -142,7 +140,6 @@ class ShipCalc(commands.Cog):
         )
         await interaction.response.send_message(embed=embed, view=view)
 
-    # Bezpośrednia komenda slash /oblicz (Wpisywanie od razu w okienkach Discorda)
     @app_commands.command(name="oblicz", description="Szacunkowy koszt wysyłki USFans / Kakobuy")
     @app_commands.describe(
         agent="Wybierz platformę (USFans lub Kakobuy)",
@@ -167,14 +164,15 @@ class ShipCalc(commands.Cog):
 
         total, kupon, koszt_ub = przelicz_koszt(agent, waga, ubezpieczenie)
 
-        # Dopasowanie ikon i kolorów pod wybranego agenta
         if agent == "Kakobuy":
             embed_color = discord.Color.red()
             agent_emoji = "<:kakobuy1:1505517561846960138>"
+            linia_text = "DHL Duty-Free Fast Line J"
             kod_text = "**Maks20** (-20%)"
         else:
             embed_color = discord.Color.blue()
             agent_emoji = "<:Usfans1:1505533510990172262>"
+            linia_text = "DHL Line in Poland (Tax-free)"
             kod_text = "**DJPZ6T** (-40%)"
 
         embed = discord.Embed(
@@ -189,7 +187,7 @@ class ShipCalc(commands.Cog):
         embed.add_field(name="🛡️ Ubezpieczenie", value=ub_text, inline=True)
         
         embed.add_field(
-            name="✈️ Linia: DHL Tariffless / DPD", 
+            name=f"✈️ Linia: {linia_text}", 
             value=f"Cena baza: ~~{total} PLN~~\nCena z kuponem: **{kupon} PLN**", 
             inline=False
         )
