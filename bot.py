@@ -10,7 +10,8 @@ GUILD_ID = os.getenv('GUILD_ID')
 
 class GłównyBot(commands.Bot):
     def __init__(self):
-        intents = discord.Intents.default()
+        # POPRAWIONE: Zmiana z .default() na .all(), aby bot miał pełne uprawnienia (Intents)
+        intents = discord.Intents.all()
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
