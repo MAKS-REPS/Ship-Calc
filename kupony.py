@@ -16,12 +16,16 @@ class Kupony(commands.Cog):
         self.wysylaj_ogloszenie.cancel()
 
     def stworz_kupony_embed(self):
+        # Twoje własne emoji z serwera:
+        kakobuy_logo = "<:emoji_9:1505530744674717819>"
+        animowana_kasa = "<a:money:1505529682559238184>"
+        
         embed = discord.Embed(
             title="📢 ODBIERZ DARMOWE KUPONY NA PIERWSZĄ PACZKĘ",
             description=(
-                "<:KAKOBUY_LOGO:1465816795356336421> Jeśli nie masz jeszcze konta na kakobuy to [kliknji tu](https://ikako.vip/r/maksr3ps) "
+                f"{kakobuy_logo} Jeśli nie masz jeszcze konta na kakobuy to [kliknji tu](https://ikako.vip/r/maksr3ps) "
                 "i odbierz darmowe kupony na start.\n\n"
-                "<a:Moneywithwings:12251546027777837740> dodatkowo wpisując kod **Maks.R3ps** otrzymasz darmowe 15$ na wysyłkę.\n\n"
+                f"{animowana_kasa} dodatkowo wpisując kod **Maks.R3ps** otrzymasz darmowe 15$ na wysyłkę.\n\n"
                 "🏷️ Po wpisaniu kodu **Maks20** dostaje sie kupon na -20%!"
             ),
             color=discord.Color.from_str("#2f3136")
@@ -32,6 +36,7 @@ class Kupony(commands.Cog):
     async def wysylaj_ogloszenie(self):
         aktualna_godzina = datetime.now().hour
         
+        # Wysyłanie automatyczne tylko w godzinach 8:00 - 22:00
         if 8 <= aktualna_godzina <= 22:
             channel = self.bot.get_channel(CHANNEL_ID)
             if channel:
