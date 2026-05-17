@@ -3,20 +3,18 @@ from discord.ext import commands
 import os
 from dotenv import load_dotenv
 
-# Inicjalizacja zmiennych z pliku .env
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 GUILD_ID = os.getenv('GUILD_ID')
 
 class GłównyBot(commands.Bot):
     def __init__(self):
-        # Pełne uprawnienia (Intents.all()) zapewniają, że bot widzi dołączających użytkowników (on_member_join)
         intents = discord.Intents.all()
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
-        # 🔗 ŁĄCZNIK: Rozszerzona lista modułów (dodano 'dm')
-        moduly = ['ship', 'kupony', 'dm']
+        # 🔗 Wszystkie Twoje moduły w jednym miejscu:
+        moduly = ['ship', 'kupony', 'dm', 'ogloszenia']
         
         for modul in moduly:
             try:
@@ -25,7 +23,6 @@ class GłównyBot(commands.Bot):
             except Exception as e:
                 print(f"❌ Błąd podczas ładowania modułu {modul}.py: {e}")
 
-        # Synchronizacja komend slash (Globalnie lub dla konkretnego serwera)
         if GUILD_ID:
             guild = discord.Object(id=int(GUILD_ID))
             self.tree.copy_global_to(guild=guild)
