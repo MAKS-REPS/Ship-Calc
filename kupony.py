@@ -4,7 +4,7 @@ from discord import app_commands
 from datetime import datetime
 
 # ==================== KONFIGURACJA MODUŁU ====================
-CHANNEL_ID = 1457763945631715456  # Twoje ID czatu
+CHANNEL_ID = 1457763945631715456  # ID Twojego czatu
 # =============================================================
 
 class Kupony(commands.Cog):
@@ -32,16 +32,15 @@ class Kupony(commands.Cog):
     async def wysylaj_ogloszenie(self):
         aktualna_godzina = datetime.now().hour
         
-        # Wysyłanie tylko w godzinach 8:00 - 22:00
         if 8 <= aktualna_godzina <= 22:
             channel = self.bot.get_channel(CHANNEL_ID)
             if channel:
                 embed = self.stworz_kupony_embed()
                 await channel.send(embed=embed)
             else:
-                print("⚠️ [Kupony] Nie odnaleziono kanału o podanym ID. Sprawdź konfigurację w kupony.py")
+                print("⚠️ [Kupony] Nie odnaleziono kanału o podanym ID.")
         else:
-            print(f"⏰ Pominięto automatyczne wysyłanie ogłoszenia (godzina {aktualna_godzina}:00, poza przedziałem 8-22).")
+            print(f"⏰ Pominięto automatyczne wysyłanie ogłoszenia (godzina {aktualna_godzina}:00).")
 
     @wysylaj_ogloszenie.before_loop
     async def przed_petla(self):
@@ -55,4 +54,3 @@ class Kupony(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(Kupony(bot))
-    
