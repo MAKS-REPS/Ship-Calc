@@ -10,6 +10,7 @@ CHANNEL_ID = 1457763945631715456  # ID Twojego czatu
 class Kupony(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.ostatnia_wiadomosc_id = None  # Tu bot będzie pamiętał ID starego embeda
         self.wysylaj_ogloszenie.start()
 
     def cog_unload(self):
@@ -40,8 +41,24 @@ class Kupony(commands.Cog):
         if 8 <= aktualna_godzina <= 22:
             channel = self.bot.get_channel(CHANNEL_ID)
             if channel:
+                # --- USUWANIE STAREJ WIADOMOŚCI ---
+                if self.ostatnia_wiadomosc_id:
+                    try:
+                        stara_wiadomosc = await channel.fetch_message(self.ostatnia_wiadomosc_id)
+                        await stara_wiadomosc.delete()
+                        print("🗑️ Pomyślnie usunięto poprzednie ogłoszenie.")
+                    except discord.NotFound:
+                        # Stara wiadomość mogła zostać już usunięta przez kogoś ręcznie
+                        print("ℹ️ Poprzednie ogłoszenie nie zostało znalezione (prawdopodobnie już usunięte).")
+                    except Exception as e:
+                        print(f"⚠️ Nie udało się usunąć starej wiadomości: {e}")
+
+                # --- WYSYŁANIE NOWEJ WIADOMOŚCI ---
                 embed = self.stworz_kupony_embed()
-                await channel.send(embed=embed)
+                nowa_wiadomosc = await channel.send(embed=embed)
+                
+                # Zapisujemy ID nowo wysłanej wiadomości, aby usunąć ją za godzinę
+                self.ostatnia_wiadomosc_id = nowa_wiadomosc.id
             else:
                 print("⚠️ [Kupony] Nie odnaleziono kanału o podanym ID.")
         else:
