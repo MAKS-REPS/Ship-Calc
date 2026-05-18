@@ -13,8 +13,8 @@ class GłównyBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
-        # 🔗 Wszystkie Twoje moduły w jednym miejscu:
-        moduly = ['ship', 'kupony', 'dm', 'ogloszenia']
+        # 🔗 Dodałem 'ankiety' do listy modułów
+        moduly = ['ship', 'kupony', 'dm', 'ogloszenia', 'ankiety']
         
         for modul in moduly:
             try:
