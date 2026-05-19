@@ -14,7 +14,7 @@ class GłównyBot(commands.Bot):
 
     async def setup_hook(self):
         # 🚀 Lista modułów: Twoje stare moduły + nowy konwerter linków
-        moduly = ['ship', 'kupony', 'dm', 'ogloszenia', 'ankiety', 'link_converter']
+        moduly = ['ship', 'kupony', 'dm', 'ogloszenia', 'ankiety','ghost_msg', 'link_converter']
         
         for modul in moduly:
             try:
