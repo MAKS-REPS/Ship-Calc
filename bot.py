@@ -3,12 +3,6 @@ from discord.ext import commands
 import os
 from dotenv import load_dotenv
 
-# Importujemy widoki z pliku private_chat, aby zarejestrować je jako Persistent Views
-try:
-    from private_chat import ChatCreateView, ChatCloseView, TicketAddonsView
-except ImportError:
-    ChatCreateView, ChatCloseView, TicketAddonsView = None, None, None
-
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 GUILD_ID = os.getenv('GUILD_ID')
@@ -19,15 +13,8 @@ class GłównyBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
-        # 🔗 Rejestracja Persistent Views (Przycisków), aby działały po restarcie bota
-        if ChatCreateView and ChatCloseView and TicketAddonsView:
-            self.add_view(ChatCreateView())
-            self.add_view(ChatCloseView())
-            self.add_view(TicketAddonsView())
-            print("🧠 Pomyślnie zarejestrowano trwałe widoki systemu AI.")
-
-        # 🚀 Lista modułów poszerzona o private_chat oraz link_converter
-        moduly = ['ship', 'kupony', 'dm', 'ogloszenia', 'ankiety', 'private_chat', 'link_converter']
+        # 🚀 Lista modułów: Twoje stare moduły + nowy konwerter linków
+        moduly = ['ship', 'kupony', 'dm', 'ogloszenia', 'ankiety', 'link_converter']
         
         for modul in moduly:
             try:
