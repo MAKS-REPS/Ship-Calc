@@ -9,6 +9,8 @@ class LinkConverterCog(commands.Cog):
         # Twoje kody afiliacyjne
         self.AFF_KAKOBUY = "maksr3ps"
         self.AFF_USFANS = "DJPZ6T"
+        # 📌 ID jedynego kanału, na którym działa konwerter
+        self.DOZWOLONY_KANAL_ID = 1506384024606740682
 
     def extract_product_info(self, url: str):
         """
@@ -80,7 +82,12 @@ class LinkConverterCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
+        # Ignorujemy wiadomości od botów
         if message.author.bot:
+            return
+
+        # 🔒 Blokada kanału: bot reaguje wyłącznie na wyznaczonym kanale
+        if message.channel.id != self.DOZWOLONY_KANAL_ID:
             return
 
         url_match = re.search(r'(https?://[^\s]+)', message.content)
@@ -110,7 +117,7 @@ class LinkConverterCog(commands.Cog):
             source_display_name = "Taobao"
             source_emoji = emoji_dict["Taobao"]
         else:
-            # Dla Weidian lub domyślnego Kakobuy (traktowanego jako Weidian w strukturze agenta)
+            # Dla Weidian lub domyślnego Kakobuy
             clean_source_url = f"https://weidian.com/item.html?itemID={product_id}"
             source_display_name = "Weidian"
             source_emoji = emoji_dict["Weidian"]
@@ -131,7 +138,7 @@ class LinkConverterCog(commands.Cog):
         view = discord.ui.View()
         
         view.add_item(discord.ui.Button(
-            label="KakoBuy", 
+            label="ComoBuy" if "comobuy" in kakobuy_aff_url.lower() else "KakoBuy", # Dla spójności, choć affcode i baza to KakoBuy
             url=kakobuy_aff_url, 
             style=discord.ButtonStyle.link, 
             emoji="<:kakobuy1:1505517561846960138>"
