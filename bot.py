@@ -3,6 +3,12 @@ from discord.ext import commands
 import os
 from dotenv import load_dotenv
 
+# Importujemy widok ankiety, aby zarejestrować go jako trwały (Persistent View)
+try:
+    from ankiety import PollView
+except ImportError:
+    PollView = None
+
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 GUILD_ID = os.getenv('GUILD_ID')
@@ -13,8 +19,14 @@ class GłównyBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
-        # 🚀 Lista modułów: Twoje stare moduły + nowy konwerter linków
-        moduly = ['ship', 'kupony', 'dm', 'ogloszenia', 'ankiety','ghost_msg', 'promo_embed', 'link_converter']
+        # 🧠 Rejestracja trwałych widoków (Persistent Views)
+        # Dzięki temu przyciski ankiety będą działać nawet po restarcie bota
+        if PollView:
+            self.add_view(PollView())
+            print("📊 Pomyślnie zarejestrowano trwały widok ankiet.")
+
+        # 🚀 Lista modułów
+        moduly = ['ship', 'kupony', 'dm', 'ogloszenia', 'ankiety', 'ghost_msg', 'promo_embed', 'link_converter']
         
         for modul in moduly:
             try:
